@@ -109,6 +109,7 @@ def convert_date(row):
     #return datetime.strptime(row, "%m/%d/%Y")
     return datetime.strptime(row, "%Y-%m-%d")
 
+
 def move_named_range(ws, wb, named_range_name, offset_rows):
     """
     Mueve un rango nombrado verticalmente en la hoja, preservando las fórmulas
@@ -193,6 +194,33 @@ def reapply_data_validations(ws, table, start_row, num_new_rows):
                     new_dv.add(new_range)
                     ws.add_data_validation(new_dv)
 
+# def write_df_to_named_table_by_header(ws, sheet_name, table_name, df):
+#     table = ws.tables.get(table_name)
+#     if table is None:
+#         raise ValueError(f"Table '{table_name}' not found in sheet '{sheet_name}'.")
+
+#     start_cell, end_cell = table.ref.split(':')
+#     start_col_letter = ''.join(filter(str.isalpha, start_cell))
+#     start_col = column_index_from_string(start_col_letter)
+#     start_row = int(''.join(filter(str.isdigit, start_cell)))
+
+#     headers = [ws.cell(row=start_row, column=col_idx).value for col_idx in range(start_col, start_col + len(table.tableColumns))]
+#     header_to_col = {header: col_idx for header, col_idx in zip(headers, range(start_col, start_col + len(headers)))}
+
+#     for row_offset, (_, df_row) in enumerate(df.iterrows(), start=1):
+
+#         for header, col_idx in header_to_col.items():
+#             cell = ws.cell(row=start_row + 1, column=col_idx)  # check the formula in the template row
+#             if header in df.columns and not cell.data_type == 'f':
+#                 ws.cell(row=start_row + row_offset, column=col_idx, value=df_row[header])
+
+#     new_end_row = start_row + len(df)
+#     new_ref = f"{start_cell}:{ws.cell(row=new_end_row, column=start_col + len(headers) - 1).coordinate}"
+#     table.ref = new_ref
+#     reapply_data_validations(ws, table, start_row, len(df))
+
+#     return new_end_row
+
 def write_df_to_named_table_by_header(ws, sheet_name, table_name, df):
     table = ws.tables.get(table_name)
     if table is None:
@@ -208,13 +236,25 @@ def write_df_to_named_table_by_header(ws, sheet_name, table_name, df):
 
     for row_offset, (_, df_row) in enumerate(df.iterrows(), start=1):
         for header, col_idx in header_to_col.items():
-            if header in df.columns:
+            cell = ws.cell(row=start_row + 1, column=col_idx)  # check the formula in the template row
+            if header in df.columns and not cell.data_type == 'f':
                 ws.cell(row=start_row + row_offset, column=col_idx, value=df_row[header])
 
     new_end_row = start_row + len(df)
     new_ref = f"{start_cell}:{ws.cell(row=new_end_row, column=start_col + len(headers) - 1).coordinate}"
     table.ref = new_ref
     reapply_data_validations(ws, table, start_row, len(df))
+
+    # --- COPY FORMULAS ---
+    first_data_row = start_row + 1
+    for col_idx in range(start_col, start_col + len(headers)):
+        source_cell = ws.cell(row=first_data_row, column=col_idx)
+        if source_cell.data_type == 'f':  # formula
+            for row_offset in range(1, len(df)):
+                target_cell = ws.cell(row=start_row + 1 + row_offset, column=col_idx)
+                target_cell.value = source_cell.value
+    # ----------------------
+
     return new_end_row
 
 def move_table_and_label_down(ws, table, offset, label_rows_above=1):
@@ -326,27 +366,6 @@ def prepare_tables_for_writing(ws, wb, write_instructions, label_rows_above=1):
                 if min_row_nr >= lower_start:
                     move_named_range(ws, wb, defined_name.name, offset_rows=needed_offset)
 
-def align_column(df, col_name='Clave', target_index=5, fill_value=""):
-    df = df.copy()
-
-    # Step 1: Add padding columns if needed
-    current_cols = list(df.columns)
-    num_required = target_index + 1  # Because target index is zero-based
-
-    if len(current_cols) < num_required:
-        for i in range(num_required - len(current_cols)):
-            new_col = f" "
-            df[new_col] = fill_value
-
-    # Step 2: Reorder columns to move col_name to target_index
-    cols = list(df.columns)
-    if col_name not in cols:
-        return df  # Skip if the column doesn't exist
-
-    cols.remove(col_name)
-    cols.insert(target_index, col_name)
-    return df[cols]
-
 def parse_number(value, label):
     if isinstance(value, (int, float)):
         return abs(value)
@@ -429,54 +448,6 @@ def apply_classification(df, model_path, vectorizer_path, text_columns):
     df[['CLAVE', 'PREDICCIÓN']] = df.apply(classify_row, axis=1)
     return df
 
-def write_df_to_excel(ws, df, start_row=1, start_col=1, label=None):
-    """
-    Writes a DataFrame to an openpyxl worksheet with optional styling and top label.
-    """
-    # --- Step 1: Optional top label ---
-    if label:
-        end_col_letter = get_column_letter(start_col + len(df.columns) - 1)
-        cell_range = f"{get_column_letter(start_col)}{start_row}:{end_col_letter}{start_row}"
-        ws.merge_cells(cell_range)
-        cell = ws.cell(row=start_row, column=start_col)
-        cell.value = label
-        cell.font = Font(bold=True, size=14)
-        cell.alignment = Alignment(horizontal='center')
-        start_row += 1  # Shift everything below by 1 row
-
-    # --- Step 2: Clear previous content to avoid ghost columns ---
-    for row in ws.iter_rows(
-        min_row=start_row,
-        max_row=start_row + len(df),
-        min_col=start_col,
-        max_col=start_col + len(df.columns) + 5  # +5 as a buffer in case old data is wider
-    ):
-        for cell in row:
-            cell.value = None
-
-    # --- Step 3: Write headers ---
-    header_fill = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")  # Gold
-    header_font = Font(bold=True, color="000000")  # Bold black font
-
-    for col_idx, column_name in enumerate(df.columns):
-        col_letter = get_column_letter(start_col + col_idx)
-        cell = ws[f"{col_letter}{start_row}"]
-        cell.value = column_name
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal='center')
-
-    # --- Step 4: Write data ---
-    for row_idx, row in df.iterrows():
-        for col_idx, value in enumerate(row):
-            col_letter = get_column_letter(start_col + col_idx)
-            cell_ref = f"{col_letter}{start_row + 1 + row_idx}"
-            ws[cell_ref] = value
-
-            if isinstance(value, (int, float)):
-                col_name = df.columns[col_idx].upper()
-                if col_name != "N° DE DOCUMENTO":
-                    ws[cell_ref].number_format = FORMAT_NUMBER_COMMA_SEPARATED1  # "#,##0
 
 def file_to_df(path, label):
     if label == 'Banco Security':
@@ -516,7 +487,7 @@ def file_to_df(path, label):
     df = df[columns_to_extract[label]]
     df.rename(columns=column_dictionary[label], inplace=True)
     df = format_column(df, label)
-    print(df.columns)
+
     return df
 
 def convert_numeric(value):
@@ -691,6 +662,7 @@ def df_to_wb(dfs, wb, sheet_name):
     elif sheet_name == 'Transbank':
         if 'Transbank' in dfs:
             df_trans = dfs['Transbank']
+            print(len(df_trans))
             table_data.append(('Transbank', df_trans))
 
     # ------------------ Apply all changes to sheet ------------------
