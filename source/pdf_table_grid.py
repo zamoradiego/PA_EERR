@@ -431,10 +431,6 @@ class TableExtractorApp:
                         self.update_preview(self.accumulated_df)
                         self.show_info("Tabla añadida", "Se ha añadido esta selección a la tabla acumulada.")
 
-                        # df = pd.DataFrame(data)
-                        # print(df.to_string())
-                        df.to_excel("tabla_grid_extraida.xlsx", index=False)
-                        self.show_info("Éxito", "Tabla extraída y guardada como 'tabla_grid_extraida.xlsx'.")
                     except Exception as e:
                         messagebox.showerror("Error", f"No se pudo extraer la tabla:\n{e}")
 

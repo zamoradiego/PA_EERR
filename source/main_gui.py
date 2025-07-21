@@ -35,12 +35,18 @@ class DragDropFrame(tk.Frame):
             self.set_file(file_path)
 
     def on_click(self, event):
-        file_path = filedialog.askopenfilename(
-            title=f"Seleccionar archivo para {self.label}",
-            filetypes=[("Archivos válidos", ("*.xlsx", "*.xls", "*.csv", "*.pdf")), ("Todos los archivos", "*.*")]
-        )
-        if file_path:
-            self.set_file(file_path)
+        if self.label == "Transbank":
+            #self.label_widget.drop_target_unregister()
+            folder_path = filedialog.askdirectory(title=f"Seleccionar carpeta para {self.label}")
+            if folder_path:
+                self.set_file(folder_path)
+        else:
+            file_path = filedialog.askopenfilename(
+                title=f"Seleccionar archivo para {self.label}",
+                filetypes=[("Archivos válidos", ("*.xlsx", "*.xls", "*.csv", "*.pdf")), ("Todos los archivos", "*.*")]
+            )
+            if file_path:
+                self.set_file(file_path)
 
     def set_file(self, file_path):
         self.file_path = file_path

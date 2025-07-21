@@ -5,19 +5,17 @@ from text_classification import classify_text
 from pdf_table_grid import TableExtractorApp
 from openpyxl.styles.numbers import FORMAT_NUMBER_COMMA_SEPARATED1
 import re
+import os
 from openpyxl.styles import Font, PatternFill, Alignment
-from openpyxl.worksheet.table import Table
-from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 from openpyxl.utils import range_boundaries, get_column_letter
 from openpyxl.styles import Font, PatternFill, Border, Alignment, Protection
-from openpyxl.utils import range_boundaries, get_column_letter
 from datetime import datetime
-from openpyxl.utils import range_boundaries, get_column_letter
-from openpyxl.utils import get_column_letter, range_boundaries
+from openpyxl.worksheet.datavalidation import DataValidation
 from os.path import join
+import numpy as np
 
-PATH_MODEL = join('..', 'predicción')
+PATH_MODEL = join('..', 'prediccion')
 
 columns_to_extract = {'Cuenta BCI 18' : ['Fecha', 'Sucursal', 'Descripción', 'N° Documento', 'Cheques y otros cargos' , 'Depósitos y Abono', 'Saldo diario'],
                       'Cuenta BCI 85' : ['Fecha', 'Sucursal', 'Descripción', 'N° Documento', 'Cheques y otros cargos' , 'Depósitos y Abono', 'Saldo diario'],
@@ -27,12 +25,19 @@ columns_to_extract = {'Cuenta BCI 18' : ['Fecha', 'Sucursal', 'Descripción', 'N
                       'Tarjeta de crédito nacional 69' : ['LUGAR DE OPERACIÓN', 'FECHA OPERACIÓN', 'CODIGO REFERENCIA', 'DESCRIPCION OPERACION O COBRO', 'MONTO OPERACIÓN O COBRO', 'MONTO TOTAL A PAGAR'],
                       'Cuenta BCI Comercio Exterior' : ['FECHA', 'SUCURSAL', 'DESCRIPCION', 'N° DE DOCUMENTO', 'CHEQUES Y OTROS CARGOS', 'DEPOSITOS Y ABONOS', 'SALDO DIARIO'],
                       'Banco Security' : ['fecha ', 'descripción ', 'número de documentos ', 'cargos ', 'abonos ', 'saldos '],
-                      'Transbank' : ['Fecha Venta', 'Local', 'Tipo Movimiento', 'Identificador', 'Monto Afecto', 'N° Boleta'],
+                      'Transbank' : ['Fecha de venta - nan', 'Cód. comercio - nan',
+                                      'Nombre local - nan', 'Tipo de movimiento - nan',
+                                      'Tipo de tarjeta - nan', 'Identificador - N° de tarjeta',
+                                      'nan - Cód. de autorización', 'nan - Orden de pedido',
+                                      'nan - Número único', 'nan - ID de servicio', 'Tipo de cuota - nan',
+                                      'Monto afecto - nan', 'Monto exento - nan', 'N° de cuotas - nan',
+                                      'Monto cuota - nan', 'Fecha de abono - nan', 'N° de boleta - nan',
+                                      'Monto vuelto - nan'],
                       'Transferencias' : ['Monto $', 'Nombre Destino/Origen', 'Mensaje Destino']}
 
 column_dictionary = {'Banco Security' : {'fecha ' : 'FECHA', 
                                    'descripción ' : 'DESCRIPCION', 
-                                   'número de documentos ' : 'N° DOCUMENTO', 
+                                   'número de documentos ' : 'Nº DOCUMENTO', 
                                    'cargos ' : 'CARGO', 
                                    'abonos ' : 'ABONO', 
                                    'saldos ' : 'SALDO'},
@@ -47,12 +52,24 @@ column_dictionary = {'Banco Security' : {'fecha ' : 'FECHA',
                                      'Habitación' : 'HABITACIONES', 
                                      'Precio total' : 'TOTAL',
                                      'Fecha de reserva' : 'FECHA RESERVA'},
-                     'Transbank' : {'Fecha' : 'FECHA', 
-                                    'Local' : 'CODIGO COMERCIO', 
-                                    'Tipo Movimiento' : 'TIPO MOVIMIENTO', 
-                                    'Identificador' : 'NUMERO TARJETA', 
-                                    'Monto Afecto' : 'TOTAL', 
-                                    'N° Boleta' : 'NUMERO'},
+                     'Transbank' : {'Fecha de venta - nan' : 'FECHA', 
+                                    'Cód. comercio - nan' : 'CODIGO COMERCIO',
+                                    'Nombre local - nan' : 'LOCAL',
+                                    'Tipo de movimiento - nan' : 'TIPO MOVIMIENTO',
+                                    'Tipo de tarjeta - nan': 'TARJETA',
+                                    'Identificador - N° de tarjeta' : 'NUMERO TARJETA',
+                                    'nan - Cód. de autorización' : 'CODIGO AUTORIZACION',
+                                    'nan - Orden de pedido' : 'ORDEN',
+                                    'nan - Número único' : 'NUMERO OPERACION',
+                                    'nan - ID de servicio' : 'ID SERVICIO',
+                                    'Tipo de cuota - nan' : 'TIPO CUOTA',
+                                    'Monto afecto - nan' : 'TOTAL',
+                                    'Monto exento - nan' : 'MONTO',
+                                    'N° de cuotas - nan' : 'NUMERO CUOTAS',
+                                    'Monto cuota - nan' : 'MONTO CUOTA',
+                                    'Fecha de abono - nan' : 'FECHA ABONO',
+                                    'N° de boleta - nan' : 'NUMERO BOLETA',
+                                    'Monto vuelto - nan' : 'VUELTO'},
                      'Transferencias' : {'Monto $' : 'CARGO TRANSF', 
                                          'Nombre Destino/Origen' : 'NOMBRE DESTINO', 
                                          'Mensaje Destino' : 'MENSAJE'},
@@ -144,9 +161,6 @@ def move_named_range(ws, wb, named_range_name, offset_rows):
     new_range = f"'{ws.title}'!${get_column_letter(min_col)}${new_min_row}:${get_column_letter(max_col)}${new_max_row}"
     defined_name.attr_text = new_range
 
-
-from openpyxl.worksheet.datavalidation import DataValidation
-
 def reapply_data_validations(ws, table, start_row, num_new_rows):
     """Clone data validations from the original row and apply to the rest of the table."""
     min_col, min_row, max_col, max_row = range_boundaries(table.ref)
@@ -179,7 +193,6 @@ def reapply_data_validations(ws, table, start_row, num_new_rows):
                     new_dv.add(new_range)
                     ws.add_data_validation(new_dv)
 
-# === Support Function to Write to Table ===
 def write_df_to_named_table_by_header(ws, sheet_name, table_name, df):
     table = ws.tables.get(table_name)
     if table is None:
@@ -244,8 +257,6 @@ def move_table_and_label_down(ws, table, offset, label_rows_above=1):
     new_start = f"{get_column_letter(min_col)}{new_min_row}"
     new_end = f"{get_column_letter(max_col)}{new_max_row}"
     table.ref = f"{new_start}:{new_end}"
-
-from openpyxl.utils import range_boundaries
 
 def prepare_tables_for_writing(ws, wb, write_instructions, label_rows_above=1):
     """
@@ -480,8 +491,7 @@ def file_to_df(path, label):
         df = df.iloc[: end_index]
 
     elif label == 'Transbank':
-        header = 16
-        df = pd.read_excel(path, header=header - 1)
+        df = process_transbank_directory(path)
     
     elif label == 'Siteminder':
         df = pd.read_csv(path)
@@ -503,11 +513,10 @@ def file_to_df(path, label):
         header = 9 # Fila donde están los nombres de la columna (Numero de fila en excel - 1)
         df = pd.read_excel(path, header=header - 1, thousands='.')
 
-    #print(df.columns)
     df = df[columns_to_extract[label]]
-    #df.columns = [col.upper() for col in df.columns]
-    df = format_column(df, label)
     df.rename(columns=column_dictionary[label], inplace=True)
+    df = format_column(df, label)
+    print(df.columns)
     return df
 
 def convert_numeric(value):
@@ -517,60 +526,97 @@ def convert_numeric(value):
 
 def format_column(df, label):
     if label in ['Cuenta BCI 85', 'Cuenta BCI 18']:
-        # Lista de columnas a convertir a float
-        numeric_cols = ['Cheques y otros cargos', 'Depósitos y Abono', 'Saldo diario']
+        numeric_cols = ['CARGO', 'ABONO', 'SALDO']
         for col in numeric_cols:
             df[col] = df[col].apply(lambda x: parse_number(x, label))
 
-    if label == 'Cuenta BCI Comercio Exterior':
-        numeric_cols = ['CHEQUES Y OTROS CARGOS', 'DEPOSITOS Y ABONOS', 'SALDO DIARIO']
+    elif label == 'Cuenta BCI Comercio Exterior':
+        numeric_cols = ['CARGO', 'ABONO', 'SALDO']
         for col in numeric_cols:
             df[col] = df[col].apply(lambda x: parse_number(x, label))
 
-    if label == 'Transferencias':
-        numeric_cols = ['Monto $']
+    elif label == 'Transferencias':
+        numeric_cols = ['CARGO TRANSF']
         for col in numeric_cols:
             df[col] = df[col].apply(lambda x: parse_number(x, label))
 
-    if label in ['Tarjeta de crédito nacional 24', 'Tarjeta de crédito nacional 69']:
-        numeric_cols = ['MONTO OPERACIÓN O COBRO', 'MONTO TOTAL A PAGAR']
+    elif label in ['Tarjeta de crédito nacional 24', 'Tarjeta de crédito nacional 69']:
+        numeric_cols = ['CARGO']
         for col in numeric_cols:
-            df[col] = df[col].apply(lambda row: row.split()[-1])
+            df[col] = df[col].apply(lambda x: x.split()[-1] if isinstance(x, str) else x)
             df[col] = df[col].apply(lambda x: parse_number(x, label))
 
-    if label == 'Tarjeta de crédito internacional':
-        numeric_cols = ['MONTO MONEDA ORIGEN', 'MONTO US$']
-        for col in numeric_cols:
-            df[col] = df[col].apply(lambda x: parse_number(x, label))
-
-    if label == 'Siteminder':
-        numeric_cols = ['Precio total']
-        for col in numeric_cols:
-            df[col] = df[col].apply(lambda row: row.split()[-1])
-            df[col] = df[col].apply(lambda x: parse_number(x, label))
-        df['Habitación'] = df['Habitación'].apply(lambda x: x[0])
-        df['Llegada'] = df['Llegada'].apply(convert_date)
-        df['Llegada'] = df['Llegada'].dt.date
-        df['Salida'] = df['Salida'].apply(convert_date)
-        df['Salida'] = df['Salida'].dt.date
-
-    if label == 'Security':
-        numeric_cols = ['cargos', 'abonos', 'saldos']
+    elif label == 'Tarjeta de crédito internacional':
+        numeric_cols = ['MONTO US$']
         for col in numeric_cols:
             df[col] = df[col].apply(lambda x: parse_number(x, label))
 
-    if label == 'Transferencias':
-        numeric_cols = ['Monto $']
+    elif label == 'Siteminder':
+        # Formato numérico
+        numeric_cols = ['TOTAL']
+        for col in numeric_cols:
+            df[col] = df[col].apply(lambda x: x.split()[-1] if isinstance(x, str) else x)
+            df[col] = df[col].apply(lambda x: parse_number(x, label))
+        # Limpiar y convertir columnas
+        df['HABITACIONES'] = df['HABITACIONES'].apply(lambda x: x[0])
+        df['LLEGADA'] = df['LLEGADA'].apply(convert_date).dt.date
+        df['SALIDA'] = df['SALIDA'].apply(convert_date).dt.date
+
+    elif label == 'Security':
+        numeric_cols = ['CARGO', 'ABONO', 'SALDO']
         for col in numeric_cols:
             df[col] = df[col].apply(lambda x: parse_number(x, label))
 
-    if label == 'Transbank':
-        numeric_cols = ['Monto $']
-        for col in numeric_cols:
-            df[col] = df[col].apply(lambda row: row.split('$')[-1])
-            df[col] = df[col].apply(lambda x: parse_number(x, label))
+    elif label == 'Transbank':
+
+        # Nuevas columnas
+        df['PESOS'] = np.nan
+        df['TIPO VENTA'] = np.nan
+        df['PROPINA'] = np.nan
+        df['CODIGO EMPLEADO'] = np.nan
+
+        # Asignar moneda
+        df['MONEDA'] = df['TIPO MOVIMIENTO'].replace({
+            'Venta USD$': 'DOLAR',
+            'Venta $': 'PESO'
+        })
+
+        # Convertir número de boleta
+        df['NUMERO'] = pd.to_numeric(df['NUMERO BOLETA'], errors='coerce')
+
+        # Convertir fecha y ordenar
+        df[['FECHA', 'HORA']] = df['FECHA'].str.split(' ', n=1, expand=True)
+        df['FECHA'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y', errors='coerce')
+        df = df.sort_values(by=['FECHA', 'NUMERO'], ascending=True)
 
     return df
+
+def process_transbank_directory(directory):
+    dataframes = []
+    for filename in os.listdir(directory):
+        if not filename.lower().endswith(('.xlsx', '.xls')):
+            continue
+
+        file_path = os.path.join(directory, filename)
+
+        try:
+            df_temp = pd.read_excel(file_path, header=None)
+            columnas = df_temp.iloc[17].astype(str).str.strip() + " - " + df_temp.iloc[18].astype(str).str.strip()
+
+            df = pd.read_excel(file_path, skiprows=19, header=None)
+            df.columns = columnas
+
+            dataframes.append(df)
+
+        except Exception as e:
+            print(f"Error processing {filename}: {e}")
+            continue
+
+    if dataframes:
+        df_stack = pd.concat(dataframes, ignore_index=True)
+        return df_stack
+    else:
+        return pd.DataFrame()
 
 def df_to_wb(dfs, wb, sheet_name):
     ws = wb[sheet_name]
@@ -598,7 +644,6 @@ def df_to_wb(dfs, wb, sheet_name):
             model_path, vectorizer_path = join(PATH_MODEL, "modelo_C85.pkl"), join(PATH_MODEL, "vectorizer_C85.pkl")
             df_final = apply_classification(df_final, model_path, vectorizer_path, ['MOVIMIENTO', 'NOMBRE DESTINO', 'MENSAJE'])
             df_final = df_final.drop(columns=['CARGO TRANSF', 'merge_id'], errors='ignore')
-            df_final = df_final[['FECHA', 'OFICINA', 'MOVIMIENTO', 'N° DOCUMENTO', 'CARGO', 'ABONO', 'SALDO', 'CLAVE', 'PREDICCIÓN', 'NOMBRE DESTINO', 'MENSAJE']]
             table_data.append(('Cuenta_85', df_final))
 
         # ------------------ Cuenta BCI Comercio Exterior ------------------
@@ -606,7 +651,6 @@ def df_to_wb(dfs, wb, sheet_name):
             df_ext = dfs['Cuenta BCI Comercio Exterior'].copy()
             model_path, vectorizer_path = join(PATH_MODEL, "modelo_CUSD.pkl"), join(PATH_MODEL, "vectorizer_CUSD.pkl")
             df_ext = apply_classification(df_ext, model_path, vectorizer_path, ['DESCRIPCION'])
-            df_ext = df_ext[['FECHA', 'OFICINA', 'DESCRIPCION', 'N° DE DOCUMENTO', 'CARGO', 'ABONO', 'SALDO', 'CLAVE', 'PREDICCIÓN']]
             table_data.append(('BCI_Comercio_Exterior', df_ext))
 
         # ------------------ Tarjeta de crédito nacional ------------------
@@ -615,7 +659,6 @@ def df_to_wb(dfs, wb, sheet_name):
             df_credito_nacional = pd.concat(df_tcn_list, ignore_index=True)
             model_path, vectorizer_path = join(PATH_MODEL, "modelo_TCN.pkl"), join(PATH_MODEL, "vectorizer_TCN.pkl")
             df_credito_nacional = apply_classification(df_credito_nacional, model_path, vectorizer_path, ['DESCRIPCION'])
-            df_credito_nacional = df_credito_nacional[['FECHA', 'LUGAR DE OPERACIÓN', 'DESCRIPCION', 'CÓDIGO REFERENCIA', 'CARGO', 'CLAVE', 'PREDICCIÓN']]
             table_data.append(('TC_Nacional', df_credito_nacional))  # Use the actual table name here
 
         # ------------------ Tarjeta de crédito internacional ------------------
@@ -628,14 +671,11 @@ def df_to_wb(dfs, wb, sheet_name):
             df_credito_internacional['CARGO'] = [
                 f"=D{row_num}*EERR!$D$2" for row_num in range(start_row, start_row + len(df_credito_internacional))
             ]
-            df_credito_internacional = df_credito_internacional[['FECHA', 'DESCRIPCION', 'CÓDIGO REFERENCIA', 'MONTO US$', 'CARGO', 'CLAVE', 'PREDICCIÓN']]
             table_data.append(('TC_Internacional', df_credito_internacional))  # Use actual table name
 
     elif sheet_name == 'Security':
         if 'Banco Security' in dfs:
-            print('asdf')
             df_security = dfs['Banco Security']
-            print(df_security)
             model_path, vectorizer_path = join(PATH_MODEL, "modelo_security.pkl"), join(PATH_MODEL, "vectorizer_security.pkl")
             text_columns = ['DESCRIPCION']
             df_security = apply_classification(df_security, model_path, vectorizer_path, text_columns)
