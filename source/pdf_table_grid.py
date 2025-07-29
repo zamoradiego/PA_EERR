@@ -88,6 +88,7 @@ class TableExtractorApp:
         from tkinter import ttk
         self.preview = ttk.Treeview(self.right_panel, show="headings")
         self.preview.pack(fill="both", expand=True)
+        self.preview.bind("<Double-Button-1>", self.edit_header)
 
         self.header_mode = False
         self.header_col_fractions = []  # will store header grid
@@ -490,6 +491,56 @@ class TableExtractorApp:
         messagebox.showinfo(title, message)
         self.canvas.focus_set()
         self.root.focus_force()
+
+    def edit_header(self, event):
+        # Identify which column header was clicked
+        region = self.preview.identify_region(event.x, event.y)
+        if region != "heading":
+            return
+
+        column_id = self.preview.identify_column(event.x)
+        col_index = int(column_id.replace("#", "")) - 1
+
+        old_name = self.preview["columns"][col_index]
+
+        # Get x/y coordinates of the header cell
+        bbox = self.preview.bbox("")
+
+        if not bbox:
+            return
+
+        x, y, width, height = self.preview.bbox(column_id)
+
+        # Create Entry widget for editing
+        entry = tk.Entry(self.preview)
+        entry.place(x=x, y=y, width=width, height=height)
+        entry.insert(0, old_name)
+        entry.focus()
+
+        def save_header_change(event=None):
+            new_name = entry.get().strip()
+            entry.destroy()
+            if not new_name:
+                return
+            # Update Treeview columns
+            columns = list(self.preview["columns"])
+            columns[col_index] = new_name
+            self.preview["columns"] = columns
+            self.preview.heading(f"#{col_index+1}", text=new_name)
+
+            # Update accumulated_df column names
+            if not self.accumulated_df.empty:
+                df_columns = list(self.accumulated_df.columns)
+                df_columns[col_index] = new_name
+                self.accumulated_df.columns = df_columns
+
+            # Update stored header text for future extractions
+            if self.header_text and len(self.header_text) == len(columns):
+                self.header_text[col_index] = new_name
+
+        entry.bind("<Return>", save_header_change)
+        entry.bind("<FocusOut>", lambda e: entry.destroy())
+
 
 if __name__ == "__main__":
     root = tk.Tk()
